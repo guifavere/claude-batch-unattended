@@ -2,8 +2,12 @@
 # Stop-hook notifier for unattended batch runs (Telegram).
 # NEVER blocks: only sends notifications, always exits 0.
 # Modes:
-#   - Stop hook: auto "finished" (fires only while a batch is active).
-#   - Manual stop-and-notify: notify.sh "BLOCKED: reason"
+#   - Stop hook: auto "finished" — fires when a batch is active (sentinel
+#     present) AND the turn did not end on a block. On a clean finish it sends
+#     the summary and clears the sentinel. A turn that ended on a manual block
+#     leaves a .batch-blocked marker, which makes this run stay silent (the
+#     BLOCKED message already went out) and consume the marker.
+#   - Manual stop-and-notify: notify.sh "BLOCKED: reason"  (drops the marker)
 #
 # Generic (project-agnostic). All per-project state lives under
 # ${CLAUDE_PROJECT_DIR}/.claude/ ; this script ships inside the plugin and is
@@ -18,6 +22,7 @@ CONF="${PROJECT_DIR}/.claude/.notify.conf"
 LOG="${PROJECT_DIR}/.claude/hooks/notify.log"
 SENTINEL="${PROJECT_DIR}/.claude/.batch-active"
 SUMMARY="${PROJECT_DIR}/.claude/.batch-summary.md"
+BLOCKED_MARK="${PROJECT_DIR}/.claude/.batch-blocked"
 MANUAL_MSG="${1:-}"
 
 # Guard FIRST, before any side effect: the auto "finished" message only fires
@@ -29,6 +34,20 @@ fi
 
 # Past the guard: this is a real notification. Ensure the log dir exists.
 mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
+
+if [ -n "$MANUAL_MSG" ]; then
+  # Manual BLOCKED call: mark that this turn ended on a block, so the Stop hook
+  # that fires right after this turn stays silent instead of sending "finished".
+  : > "$BLOCKED_MARK" 2>/dev/null || true
+else
+  # Stop hook (sentinel present). If the turn ended on a block, the BLOCKED
+  # message already went out — consume the marker and stay silent.
+  if [ -f "$BLOCKED_MARK" ]; then
+    rm -f "$BLOCKED_MARK"
+    echo "$(date -u +%FT%TZ) skip finished: turn ended on a block" >> "$LOG"
+    exit 0
+  fi
+fi
 
 if [ ! -r "$CONF" ]; then
   echo "$(date -u +%FT%TZ) ERROR: $CONF missing; no notification sent" >> "$LOG"
@@ -68,4 +87,8 @@ if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
 else
   echo "$(date -u +%FT%TZ) ERROR: telegram vars missing in .notify.conf" >> "$LOG"
 fi
+
+# Finished mode: the batch is done — clear the sentinel so ordinary later stops
+# don't re-notify (regardless of the send outcome above).
+[ -z "$MANUAL_MSG" ] && rm -f "$SENTINEL"
 exit 0

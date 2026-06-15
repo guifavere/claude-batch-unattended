@@ -1,7 +1,7 @@
 ---
 description: Intake for autonomous batch work — clarify everything, one consolidated approval, run unattended, notify on Telegram when done.
 argument-hint: "<paste all demands here>"
-allowed-tools: Read, Grep, Glob, Edit, Write, AskUserQuestion, Skill(superpowers:brainstorming), Skill(superpowers:writing-plans), Agent, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, Bash(git status:*), Bash(git branch:*), Bash(git log:*), Bash(git diff:*), Bash(git show:*), Bash(git add:*), Bash(git commit:*), Bash(git merge:*), Bash(git worktree:*), Bash(touch:*), Bash(rm -f .claude/.batch-active), Bash(bash:*)
+allowed-tools: Read, Grep, Glob, Edit, Write, AskUserQuestion, Skill(superpowers:brainstorming), Skill(superpowers:writing-plans), Agent, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, Bash(git status:*), Bash(git branch:*), Bash(git log:*), Bash(git diff:*), Bash(git show:*), Bash(git add:*), Bash(git commit:*), Bash(git merge:*), Bash(git worktree:*), Bash(touch:*), Bash(bash:*)
 ---
 
 # Autonomous Batch Work — Intake Ritual
@@ -132,7 +132,9 @@ STOP IMMEDIATELY, notify, and wait when the action is:
 To "stop and notify": run
 `bash "<notify-script-path>" "BLOCKED: <reason>"`
 (the path resolved in Phase 0), end the turn and wait for the user. Do NOT
-proceed past the blocker.
+proceed past the blocker. The sentinel stays in place (the batch is still
+active); the notifier marks the block so the Stop hook that fires right after
+this turn will NOT also send a "finished" message.
 
 ## On completion
 
@@ -144,10 +146,12 @@ proceed past the blocker.
     `${CLAUDE_PROJECT_DIR}/.claude/.batch-summary.md` — this is the exact file
     the Stop hook reads to build the Telegram message. Keep it short (the
     notifier sends the last ~1200 bytes): the headline status, demands done,
-    anything blocked + reason. Then remove the sentinel
-    `${CLAUDE_PROJECT_DIR}/.claude/.batch-active`.
-17. End the turn normally. The Stop hook fires `notify.sh`, which sends the
-    contents of `.claude/.batch-summary.md` to Telegram.
+    anything blocked + reason. Do NOT remove the sentinel yourself — the Stop
+    hook clears `${CLAUDE_PROJECT_DIR}/.claude/.batch-active` when it sends the
+    finished message.
+17. End the turn normally. The Stop hook fires `notify.sh`, which (because the
+    sentinel is present and the turn did not end on a block) sends the contents
+    of `.claude/.batch-summary.md` to Telegram and then removes the sentinel.
 
 ## Notification setup (tell the user if .notify.conf is missing)
 
