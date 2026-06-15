@@ -2,12 +2,13 @@
 # Stop-hook notifier for unattended batch runs (Telegram).
 # NEVER blocks: only sends notifications, always exits 0.
 # Modes:
-#   - Stop hook: receives Stop JSON on stdin (auto "finished").
+#   - Stop hook: auto "finished" (fires only while a batch is active).
 #   - Manual stop-and-notify: notify.sh "BLOCKED: reason"
 #
-# Generic (project-agnostic) version. All per-project state lives under
+# Generic (project-agnostic). All per-project state lives under
 # ${CLAUDE_PROJECT_DIR}/.claude/ ; this script ships inside the plugin and is
 # referenced via ${CLAUDE_PLUGIN_ROOT}/scripts/notify.sh.
+# No external deps beyond curl.
 set -uo pipefail
 
 # CLAUDE_PROJECT_DIR is set by the harness when this runs as a hook. Fall back
@@ -16,29 +17,18 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 CONF="${PROJECT_DIR}/.claude/.notify.conf"
 LOG="${PROJECT_DIR}/.claude/hooks/notify.log"
 SENTINEL="${PROJECT_DIR}/.claude/.batch-active"
+SUMMARY="${PROJECT_DIR}/.claude/.batch-summary.md"
 MANUAL_MSG="${1:-}"
 
-# Ensure the log directory exists (project may not have .claude/hooks/).
-mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
-
-STDIN_JSON=""
-if [ -z "$MANUAL_MSG" ] && [ ! -t 0 ]; then
-  STDIN_JSON="$(cat 2>/dev/null || true)"
-fi
-
-# Infinite-loop guard: if another Stop hook is blocking, do not re-notify.
-if [ -n "$STDIN_JSON" ]; then
-  ACTIVE="$(printf '%s' "$STDIN_JSON" | jq -r '.stop_hook_active // false' 2>/dev/null || echo false)"
-  if [ "$ACTIVE" = "true" ]; then
-    echo "$(date -u +%FT%TZ) skip: stop_hook_active=true" >> "$LOG"
-    exit 0
-  fi
-fi
-
-# Auto "finished" only fires during an active batch run (sentinel present).
+# Guard FIRST, before any side effect: the auto "finished" message only fires
+# during an active batch run (sentinel present). An ordinary session stop with
+# no batch active is a no-op — no dirs created, no stdin read, instant exit.
 if [ -z "$MANUAL_MSG" ] && [ ! -f "$SENTINEL" ]; then
   exit 0
 fi
+
+# Past the guard: this is a real notification. Ensure the log dir exists.
+mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
 
 if [ ! -r "$CONF" ]; then
   echo "$(date -u +%FT%TZ) ERROR: $CONF missing; no notification sent" >> "$LOG"
@@ -56,8 +46,7 @@ if [ -n "$MANUAL_MSG" ]; then
   HEAD="${LABEL} batch: ATTENTION NEEDED"; BODY="$MANUAL_MSG"
 else
   HEAD="${LABEL} batch: run finished"
-  LATEST="$(ls -t "${PROJECT_DIR}/.claude/plans/"*.md 2>/dev/null | head -1 || true)"
-  if [ -n "$LATEST" ]; then BODY="$(tail -c 1200 "$LATEST" 2>/dev/null)";
+  if [ -r "$SUMMARY" ]; then BODY="$(tail -c 1200 "$SUMMARY" 2>/dev/null)";
   else BODY="Batch run completed. See plan file for the full summary."; fi
 fi
 TEXT="${HEAD}

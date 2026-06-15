@@ -140,9 +140,14 @@ proceed past the blocker.
     in chat AND a final summary block in the plan file: demands done, blocked
     + reason, Autonomous Decisions Log, worktrees cleaned (if any),
     verify-command status.
-16. Remove the sentinel `${CLAUDE_PROJECT_DIR}/.claude/.batch-active`.
+16. Write that same final report (overwrite) to
+    `${CLAUDE_PROJECT_DIR}/.claude/.batch-summary.md` — this is the exact file
+    the Stop hook reads to build the Telegram message. Keep it short (the
+    notifier sends the last ~1200 bytes): the headline status, demands done,
+    anything blocked + reason. Then remove the sentinel
+    `${CLAUDE_PROJECT_DIR}/.claude/.batch-active`.
 17. End the turn normally. The Stop hook fires `notify.sh`, which sends the
-    summary to Telegram (tail of the plan file).
+    contents of `.claude/.batch-summary.md` to Telegram.
 
 ## Notification setup (tell the user if .notify.conf is missing)
 

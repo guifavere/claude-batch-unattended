@@ -32,7 +32,8 @@ namespaced as `/<plugin-name>:<command>`).
 5. **Phase 4 — Unattended execution:** runs each demand (teams or solo), green-gates with the
    project's verify command, logs autonomous decisions, and **stops + notifies** on anything
    destructive, irreversible, or spec-conflicting.
-6. **On completion:** removes the sentinel; the Stop hook sends the run summary to Telegram.
+6. **On completion:** writes the run summary to `.claude/.batch-summary.md`, removes the
+   sentinel; the Stop hook reads that file and sends the summary to Telegram.
 
 ## Install
 
@@ -82,9 +83,13 @@ claude --plugin-dir /path/to/claude-batch-unattended
 
 ## Notes
 
-- The notifier **never blocks**: it always exits 0 and only logs failures (to
-  `<project>/.claude/hooks/notify.log`).
-- All per-project state (`.notify.conf`, `.batch-active` sentinel, `notify.log`, plan files)
-  lives under the project's `.claude/`. The plugin only ships the command + script.
+- The notifier **never blocks**: it always exits 0, has no deps beyond `curl`, and only
+  logs failures (to `<project>/.claude/hooks/notify.log`).
+- The completion message is the contents of `<project>/.claude/.batch-summary.md`, which the
+  command writes on completion — a fixed file, so the notifier never has to guess which plan
+  to read.
+- All per-project state (`.notify.conf`, `.batch-active` sentinel, `.batch-summary.md`,
+  `notify.log`, plan files) lives under the project's `.claude/`. The plugin only ships the
+  command + script.
 - The Stop hook only auto-notifies while a batch is active (the `.batch-active` sentinel is
   present), so it won't ping you on every ordinary session end.
