@@ -70,7 +70,9 @@ claude --plugin-dir /path/to/claude-batch-unattended
 1. **Telegram secrets** — copy `.notify.conf.example` to the project's
    `.claude/.notify.conf`, fill `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`, and **gitignore
    it**. (Bot: create via @BotFather. chat_id: message the bot, then read
-   `message.chat.id` from `https://api.telegram.org/bot<TOKEN>/getUpdates`.)
+   `message.chat.id` from `https://api.telegram.org/bot<TOKEN>/getUpdates`.) Also gitignore
+   the run state the plugin writes: `.claude/.notify.conf`, `.claude/.batch-active`,
+   `.claude/.batch-summary.md`, `.claude/hooks/notify.log` (or ignore `.claude/` wholesale).
 2. **Optional label** — set `PROJECT_LABEL="MyProject"` in `.notify.conf` (defaults to the
    project directory name).
 3. **Agent teams (optional)** — if you want delegated execution, set
