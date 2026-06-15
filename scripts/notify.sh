@@ -54,13 +54,17 @@ TEXT="${HEAD}
 $BODY"
 
 if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
-  curl -sS -m 15 \
+  # Telegram returns HTTP 200 with {"ok":false,...} on bad token/chat, so a
+  # zero curl exit is NOT proof of delivery — inspect the response body.
+  RESP="$(curl -sS -m 15 \
     "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
     --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
     --data-urlencode "text=${TEXT}" \
-    --data "disable_web_page_preview=true" >> "$LOG" 2>&1 \
-    && echo "$(date -u +%FT%TZ) telegram OK" >> "$LOG" \
-    || echo "$(date -u +%FT%TZ) telegram FAILED" >> "$LOG"
+    --data "disable_web_page_preview=true" 2>>"$LOG")"
+  case "$RESP" in
+    *'"ok":true'*) echo "$(date -u +%FT%TZ) telegram OK" >> "$LOG" ;;
+    *) echo "$(date -u +%FT%TZ) telegram FAILED: ${RESP:-no response}" >> "$LOG" ;;
+  esac
 else
   echo "$(date -u +%FT%TZ) ERROR: telegram vars missing in .notify.conf" >> "$LOG"
 fi
