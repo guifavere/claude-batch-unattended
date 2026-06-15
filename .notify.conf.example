@@ -1,0 +1,10 @@
+# Copy to <project>/.claude/.notify.conf (gitignore it) and fill in.
+# Bot: create one via @BotFather, copy the token.
+# chat_id: send a message to the bot, then open
+#   https://api.telegram.org/bot<TOKEN>/getUpdates  -> message.chat.id
+TELEGRAM_BOT_TOKEN="123456789:AA..."
+TELEGRAM_CHAT_ID="123456789"
+
+# Optional. Label shown at the start of every notification.
+# Defaults to the project directory name when unset.
+# PROJECT_LABEL="MyProject"

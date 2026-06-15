@@ -1,0 +1,11 @@
+{
+  "name": "claude-batch-unattended",
+  "owner": { "name": "guifavere" },
+  "plugins": [
+    {
+      "name": "claude-batch-unattended",
+      "source": "./",
+      "description": "Intake-to-execution ritual for autonomous batch work: clarify everything up front, get one consolidated approval, run unattended, and notify on Telegram when done or blocked."
+    }
+  ]
+}

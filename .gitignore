@@ -1,0 +1,8 @@
+# Per-project runtime state (never belongs in the plugin repo)
+.claude/
+.notify.conf
+.batch-active
+*.log
+
+# OS / editor cruft
+.DS_Store
