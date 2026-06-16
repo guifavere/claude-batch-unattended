@@ -31,8 +31,12 @@ namespaced as `/<plugin-name>:<command>`).
    asks once: Approve / Revise / Cancel.
 5. **Phase 4 — Unattended execution:** runs each demand (teams or solo), green-gates with the
    project's verify command, logs autonomous decisions, and **stops + notifies** on anything
-   destructive, irreversible, or spec-conflicting.
-6. **On completion:** removes the sentinel; the Stop hook sends the run summary to Telegram.
+   destructive, irreversible, or spec-conflicting. A stop-and-notify leaves the sentinel in
+   place and drops a `.batch-blocked` marker so the run isn't mistaken for finished.
+6. **On completion:** writes the run summary to `.claude/.batch-summary.md` and ends the turn.
+   The Stop hook — seeing the sentinel present and no block marker — reads that file, sends
+   the summary to Telegram, and clears the sentinel. (A turn that ended on a block consumes
+   the marker and stays silent, so you get exactly one message per event.)
 
 ## Install
 
@@ -69,7 +73,10 @@ claude --plugin-dir /path/to/claude-batch-unattended
 1. **Telegram secrets** — copy `.notify.conf.example` to the project's
    `.claude/.notify.conf`, fill `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`, and **gitignore
    it**. (Bot: create via @BotFather. chat_id: message the bot, then read
-   `message.chat.id` from `https://api.telegram.org/bot<TOKEN>/getUpdates`.)
+   `message.chat.id` from `https://api.telegram.org/bot<TOKEN>/getUpdates`.) Also gitignore
+   the run state the plugin writes: `.claude/.notify.conf`, `.claude/.batch-active`,
+   `.claude/.batch-blocked`, `.claude/.batch-summary.md`, `.claude/hooks/notify.log`
+   (or ignore `.claude/` wholesale).
 2. **Optional label** — set `PROJECT_LABEL="MyProject"` in `.notify.conf` (defaults to the
    project directory name).
 3. **Agent teams (optional)** — if you want delegated execution, set
@@ -82,9 +89,15 @@ claude --plugin-dir /path/to/claude-batch-unattended
 
 ## Notes
 
-- The notifier **never blocks**: it always exits 0 and only logs failures (to
-  `<project>/.claude/hooks/notify.log`).
-- All per-project state (`.notify.conf`, `.batch-active` sentinel, `notify.log`, plan files)
-  lives under the project's `.claude/`. The plugin only ships the command + script.
+- The notifier **never blocks**: it always exits 0, has no deps beyond `curl`, and only
+  logs failures (to `<project>/.claude/hooks/notify.log`).
+- The completion message is the contents of `<project>/.claude/.batch-summary.md`, which the
+  command writes on completion — a fixed file, so the notifier never has to guess which plan
+  to read.
+- All per-project state (`.notify.conf`, `.batch-active` sentinel, `.batch-blocked` marker,
+  `.batch-summary.md`, `notify.log`, plan files) lives under the project's `.claude/`. The
+  plugin only ships the command + script.
 - The Stop hook only auto-notifies while a batch is active (the `.batch-active` sentinel is
-  present), so it won't ping you on every ordinary session end.
+  present), so it won't ping you on every ordinary session end. On a clean finish it sends the
+  summary and clears the sentinel; a turn that ended on a block stays silent (the BLOCKED
+  message already went out).
