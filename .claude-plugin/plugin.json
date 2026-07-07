@@ -1,6 +1,6 @@
 {
   "name": "claude-batch-unattended",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Intake-to-execution ritual for autonomous batch work: clarify everything up front, get one consolidated approval, run unattended, and notify on Telegram when done or blocked.",
   "author": {
     "name": "guifavere",

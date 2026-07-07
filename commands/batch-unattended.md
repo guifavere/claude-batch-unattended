@@ -23,7 +23,7 @@ $ARGUMENTS
    main/development.
 2. Confirm the notify config exists and has both secrets WITHOUT reading its
    contents (the token must never enter the transcript). Run:
-   `bash -c 'f=.claude/.notify.conf; test -s "$f" && grep -q "^TELEGRAM_BOT_TOKEN=." "$f" && grep -q "^TELEGRAM_CHAT_ID=." "$f" && echo OK'`
+   `bash -c 'f=.claude/.notify.conf; test -s "$f" && grep -Eq "^TELEGRAM_BOT_TOKEN=\"?[^\"[:space:]]" "$f" && grep -Eq "^TELEGRAM_CHAT_ID=\"?[^\"[:space:]]" "$f" && echo OK'`
    If it does not print `OK`, STOP and ask the user to create/fill it from this
    plugin's `.notify.conf.example`. Never Read or print the file.
 3. Resolve and record these project-specific values for use throughout the run:
@@ -160,8 +160,10 @@ To "stop and notify": run
 (the root and path resolved in Phase 0 — the explicit `CLAUDE_PROJECT_DIR` is
 mandatory, especially from inside a worktree), end the turn and wait for the
 user. Do NOT proceed past the blocker. The sentinel stays in place (the batch is still
-active); the notifier marks the block so the Stop hook that fires right after
-this turn will NOT also send a "finished" message.
+active). When the BLOCKED message is delivered, the notifier marks the block so the
+trailing Stop hook stays silent; if delivery fails, that Stop instead sends the
+fallback ATTENTION ("ended without a summary") — so a failed BLOCKED never leaves you
+with no ping at all.
 
 Never end a mid-run turn any other way: a turn that ends while the batch is
 active without a fresh summary (and without the BLOCKED call) makes the Stop

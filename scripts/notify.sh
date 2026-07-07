@@ -25,7 +25,9 @@
 #   notify.sh --cancel           Cancel the active batch: send "run cancelled"
 #                                and clear the sentinel + all markers. No-op
 #                                (logged) when no batch is active.
-#   notify.sh "BLOCKED: reason"  Manual stop-and-notify (drops .batch-blocked).
+#   notify.sh "BLOCKED: reason"  Manual stop-and-notify. Drops .batch-blocked
+#                                ONLY if the message was delivered, so a failed
+#                                BLOCKED does not silence the trailing Stop.
 #
 # If .notify.conf is missing nothing is sent and the sentinel is left in place;
 # the error is logged on every stop until the conf is restored or the sentinel
@@ -90,11 +92,6 @@ case "$MODE" in
       log "cancel: no active batch"
       exit 0
     fi
-    ;;
-  blocked)
-    # Mark that this turn ended on a block, so the Stop hook that fires right
-    # after this turn stays silent instead of sending "finished".
-    : > "$BLOCKED_MARK" 2>/dev/null || true
     ;;
   notification)
     if recent "$NOTIF_MARK" 5; then
@@ -214,7 +211,14 @@ case "$MODE" in
     [ "$SENT" = 1 ] && : > "$NOTIF_MARK" 2>/dev/null || true
     ;;
   blocked)
-    [ "$SENT" = 1 ] && : > "$NOTIF_MARK" 2>/dev/null || true
+    # Only silence the trailing Stop hook once the BLOCKED message is actually
+    # delivered. If the send failed, leave no marker: the Stop that follows then
+    # runs the normal path and sends the "ended without summary" ATTENTION, so a
+    # failed BLOCKED never leaves the run with zero notification.
+    if [ "$SENT" = 1 ]; then
+      : > "$BLOCKED_MARK" 2>/dev/null || true   # silence the trailing Stop
+      : > "$NOTIF_MARK"   2>/dev/null || true   # suppress the idle double-ping
+    fi
     ;;
   cancel)
     # Cancel is interactive (the user sees the chat), so clear unconditionally.

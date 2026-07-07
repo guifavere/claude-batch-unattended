@@ -147,6 +147,19 @@ check "blocked: stop consumed marker" '[ ! -f "$C/.batch-blocked" ]'
 check "blocked: stop silent" 'lastlog | grep -q "skip finished: turn ended on a block"'
 check "blocked: sentinel kept" '[ -f "$C/.batch-active" ]'
 
+echo "== 13b. BLOCKED + FAILED send -> no block marker, trailing stop NOT silenced (R1)"
+reset_state; resp_fail
+touch "$C/.batch-active"
+bash "$SCRIPT" "BLOCKED: acao destrutiva"
+check "blocked FAIL: telegram FAILED logged" 'lastlog | grep -q "telegram FAILED (blocked)"'
+check "blocked FAIL: block marker NOT created" '[ ! -f "$C/.batch-blocked" ]'
+# The trailing Stop must NOT be silenced — it sends the ATTENTION fallback so a
+# failed BLOCKED never leaves the run with zero notification.
+resp_ok
+bash "$SCRIPT"
+check "blocked FAIL: trailing stop sends fallback (not skipped)" 'lastlog | grep -q "telegram OK (stop)"'
+check "blocked FAIL: sentinel kept" '[ -f "$C/.batch-active" ]'
+
 echo "== 14. UTF-8: mid-char cut invalid raw, valid after iconv -c"
 printf 'ça' | tail -c 2 | iconv -f UTF-8 -t UTF-8 > /dev/null 2>&1
 check "utf8: raw cut IS invalid (bug is real)" '[ $? -ne 0 ]'
