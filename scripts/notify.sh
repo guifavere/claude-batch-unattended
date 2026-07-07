@@ -22,6 +22,9 @@
 #   notify.sh --start "msg"      Post-approval "run started" ping. Also proves
 #                                the Telegram pipeline works at minute zero
 #                                instead of hours later.
+#   notify.sh --cancel           Cancel the active batch: send "run cancelled"
+#                                and clear the sentinel + all markers. No-op
+#                                (logged) when no batch is active.
 #   notify.sh "BLOCKED: reason"  Manual stop-and-notify (drops .batch-blocked).
 #
 # If .notify.conf is missing nothing is sent and the sentinel is left in place;
@@ -48,6 +51,7 @@ NOTIF_MARK="${PROJECT_DIR}/.claude/.batch-notif-last" # debounce: permission/inp
 case "${1:-}" in
   --notification) MODE=notification; MSG="" ;;
   --start)        MODE=start;        MSG="${2:-}" ;;
+  --cancel)       MODE=cancel;       MSG="" ;;
   "")             MODE=stop;         MSG="" ;;
   *)              MODE=blocked;      MSG="$1" ;;
 esac
@@ -72,6 +76,12 @@ fi
 
 FINISHED=0
 case "$MODE" in
+  cancel)
+    if [ ! -f "$SENTINEL" ]; then
+      log "cancel: no active batch"
+      exit 0
+    fi
+    ;;
   blocked)
     # Mark that this turn ended on a block, so the Stop hook that fires right
     # after this turn stays silent instead of sending "finished".
@@ -129,6 +139,10 @@ case "$MODE" in
     HEAD="${LABEL} batch: run started"
     BODY="${MSG:-Unattended run approved and under way.}"
     ;;
+  cancel)
+    HEAD="${LABEL} batch: run cancelled"
+    BODY="Run cancelled by the user; batch state cleared."
+    ;;
   notification)
     HEAD="${LABEL} batch: ATTENTION NEEDED"
     BODY="Claude is waiting (permission request or idle input): ${MSG:-no detail provided}"
@@ -173,6 +187,9 @@ fi
 case "$MODE" in
   notification)
     : > "$NOTIF_MARK" 2>/dev/null || true
+    ;;
+  cancel)
+    rm -f "$SENTINEL" "$BLOCKED_MARK" "$ATTN_MARK" "$NOTIF_MARK"
     ;;
   stop)
     if [ "$FINISHED" = 1 ]; then

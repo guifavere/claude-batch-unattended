@@ -13,8 +13,11 @@ them, and otherwise runs the work solo with the same discipline.
 | Piece | Path | Role |
 |-------|------|------|
 | Slash command | `commands/batch-unattended.md` | The intake-to-execution ritual (Phases 0–4). |
+| Status / cancel | `commands/batch-status.md`, `commands/batch-cancel.md` | Inspect the run state; cancel it cleanly (with a "cancelled" ping). |
 | Stop + Notification hooks | `hooks/hooks.json` + `scripts/notify.sh` | Telegram message when a batch run starts, finishes, blocks, stalls on a permission prompt, or ends abnormally. |
+| SessionStart hook | `hooks/hooks.json` + `scripts/batch-context.sh` | A new session opened while a batch is active gets a context block: run state + how to resume or discard. |
 | Secrets template | `.notify.conf.example` | Copied into each project's `.claude/` (gitignored). |
+| Test suite | `tests/test-notify.sh` + `.github/workflows/ci.yml` | State-logic regression tests; CI runs them on Linux and macOS. |
 
 Invocation: `/claude-batch-unattended:batch-unattended <paste demands>` (plugin commands are
 namespaced as `/<plugin-name>:<command>`).
@@ -42,6 +45,11 @@ namespaced as `/<plugin-name>:<command>`).
    on a block consumes the marker and stays silent (exactly one message per event). A turn
    that ends mid-run with no fresh summary sends an **ATTENTION** ping (30-min debounce) and
    keeps the sentinel, so a stale summary from a previous run is never mistaken for a finish.
+7. **Resuming:** any new session opened while the sentinel is present receives a SessionStart
+   context block (run state, where the plan/summary live, how to resume) — after a BLOCKED
+   ping or a crash you just open a session and continue. `/claude-batch-unattended:batch-status`
+   shows the same picture on demand; `/claude-batch-unattended:batch-cancel` discards the run
+   cleanly and pings "cancelled".
 
 ## Install
 
@@ -103,8 +111,19 @@ notify.sh                     # Stop hook: "finished" (summary newer than sentin
                               # or ATTENTION (abnormal end; 30-min debounce)
 notify.sh --notification      # Notification hook: permission/idle prompt (5-min debounce)
 notify.sh --start "msg"       # post-approval "run started" ping
+notify.sh --cancel            # clear sentinel + markers, ping "run cancelled"
 notify.sh "BLOCKED: reason"   # manual stop-and-notify (drops the block marker)
 ```
+
+## Tests
+
+```bash
+bash tests/test-notify.sh     # state-logic suite, no network needed
+shellcheck scripts/*.sh tests/*.sh
+```
+
+CI (GitHub Actions) runs both on every push, on Linux **and** macOS — the scripts depend on
+`find -mmin`, `[ -nt ]`, `tail -c` and `iconv`, which differ between GNU and BSD userlands.
 
 ## Notes
 

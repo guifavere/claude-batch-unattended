@@ -148,6 +148,10 @@ active without a fresh summary (and without the BLOCKED call) makes the Stop
 hook send an ATTENTION ping — correct as a safety net, but it means you
 stopped without following this policy.
 
+A NEW session opened while the batch is active receives a SessionStart context
+block describing the run state. If you see it, resume from the plan file and
+`.claude/.batch-summary.md` under this same policy — do not restart the intake.
+
 ## On completion
 
 15. When ALL demands are done (or permanently blocked), write a simple report

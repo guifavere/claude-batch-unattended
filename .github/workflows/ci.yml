@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both toolchains matter: the scripts rely on find -mmin, [ -nt ],
+        # tail -c and iconv, which differ between GNU (Linux) and BSD (macOS).
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax check
+        run: |
+          for f in scripts/*.sh tests/*.sh; do bash -n "$f"; done
+
+      - name: ShellCheck
+        run: |
+          command -v shellcheck >/dev/null || brew install shellcheck
+          shellcheck scripts/*.sh tests/*.sh
+
+      - name: State-logic test suite
+        run: bash tests/test-notify.sh
