@@ -205,9 +205,9 @@ fi
 # or the debounce window expiring — tries again.
 case "$MODE" in
   notification)
-    # Also debounce the idle-input ping when a BLOCKED message just went out
-    # (blocked mode falls here too): the Notification hook fires ~60s later and
-    # would otherwise double-notify the same event.
+    # Debounce the idle-input ping. (The blocked arm below sets NOTIF_MARK
+    # itself for the same reason: its Notification hook fires ~60s later and
+    # would otherwise double-notify the same event.)
     [ "$SENT" = 1 ] && : > "$NOTIF_MARK" 2>/dev/null || true
     ;;
   blocked)
