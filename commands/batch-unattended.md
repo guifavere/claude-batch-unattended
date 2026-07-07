@@ -21,25 +21,38 @@ $ARGUMENTS
 1. `git branch --show-current` + `git status --short`. Record the current
    branch. ALL final work lands on this branch. Never PR, never merge to
    main/development.
-2. Confirm `${CLAUDE_PROJECT_DIR}/.claude/.notify.conf` exists and is non-empty
-   (Read it). If missing, STOP and ask the user to create it from this plugin's
-   `.notify.conf.example`. Do not print its contents.
-3. Resolve and record two project-specific values for use throughout the run:
+2. Confirm the notify config exists and has both secrets WITHOUT reading its
+   contents (the token must never enter the transcript). Run:
+   `bash -c 'f=.claude/.notify.conf; test -s "$f" && grep -q "^TELEGRAM_BOT_TOKEN=." "$f" && grep -q "^TELEGRAM_CHAT_ID=." "$f" && echo OK'`
+   If it does not print `OK`, STOP and ask the user to create/fill it from this
+   plugin's `.notify.conf.example`. Never Read or print the file.
+3. Resolve and record these project-specific values for use throughout the run:
+   - **Project root** (absolute): run `pwd` and record it. The Bash tool does
+     NOT export `CLAUDE_PROJECT_DIR`, and worktree steps change the working
+     directory, so EVERY manual notifier call below must set it explicitly:
+     `CLAUDE_PROJECT_DIR="<project-root>" bash "<notify-path>" ...`. Without
+     this, a stop-and-notify fired from inside a worktree writes to the wrong
+     `.claude/` (no conf there) and silently sends nothing.
+   - **Notify script path** (absolute): prefer `${CLAUDE_PLUGIN_ROOT}/scripts/notify.sh`.
+     If that variable is not expanded in your shell, resolve it once now with:
+     `find ~/.claude/plugins -type f -path '*claude-batch-unattended*/scripts/notify.sh' | head -1`
+     and reuse the result for every call below.
    - **Verify command** (the "green gate"): read the project's `CLAUDE.md` and
      `package.json`/`Makefile`. Use the project's check/test command
      (e.g. `npm run check`, `make test`, `pnpm test`). If none exists, note that
-     there is no automated gate and rely on manual review.
+     there is no automated gate and rely on manual review. **Run it ONCE now**
+     to record a baseline: if it is already failing before any work, note the
+     pre-existing failures — during the run, block only on NEW failures you
+     introduce, not on the baseline.
    - **Team prefix**: the team-name prefix defined in the project's `CLAUDE.md`
      if present, else derive a short kebab-case prefix from the project
      directory name (e.g. `myapp`).
-   - **Notify script path**: the absolute path to this plugin's
-     `scripts/notify.sh`. Prefer `${CLAUDE_PLUGIN_ROOT}/scripts/notify.sh`; if
-     that variable is not expanded in your shell, resolve the absolute path once
-     now and reuse it for every stop-and-notify call below.
 
 ## Phase 1 — Understand and clarify EVERYTHING (blocking, before any work)
 
-4. Invoke the `superpowers:brainstorming` skill to interrogate the demands.
+4. Invoke the `superpowers:brainstorming` skill to interrogate the demands (if
+   that skill is not installed, do the equivalent inline: a structured
+   interrogation of each demand).
    For EACH demand resolve: scope boundaries, acceptance criteria, edge cases,
    data/schema impact, UI/UX expectations, ordering/dependencies between
    demands, and what "done" means. Identify every ambiguity.
@@ -62,7 +75,8 @@ $ARGUMENTS
 ## Phase 3 — Single consolidated approval (blocking)
 
 8. Use the `superpowers:writing-plans` skill to write the execution plan to the
-   plan file: ordered demands, per-demand execution chain
+   plan file (if not installed, write the plan directly with the same structure):
+   ordered demands, per-demand execution chain
    (impl → testing → review, or solo steps), target branch, the
    autonomous-vs-stop policy below, and the full Phase 2 permission list.
 9. Present ONE consolidated message: plan summary + the exact extra
@@ -70,16 +84,17 @@ $ARGUMENTS
    single approval via AskUserQuestion: Approve / Revise / Cancel. Do NOT
    create the sentinel before the answer — an interrupted or abandoned
    approval must leave no batch state behind.
-10. Only after Approve: create the sentinel
-    `${CLAUDE_PROJECT_DIR}/.claude/.batch-active` (touch the file — its mtime
-    is the run's start marker; the Stop hook only treats a summary NEWER than
-    it as a real finish), then send the start ping:
-    `bash "<notify-script-path>" --start "<one-line plan summary>"`.
-    This confirms the run began AND proves Telegram delivery works before
-    hours of unattended work (on failure, `.claude/hooks/notify.log` says why —
-    warn the user in chat instead of running blind). Then tell the user they
-    can do something else; you will notify on Telegram + report in chat when
-    done (or if a stop-and-notify condition is hit).
+10. Only after Approve: create the sentinel `.claude/.batch-active` (touch the
+    file — its mtime is the run's start marker; the Stop hook only treats a
+    summary NEWER than it as a real finish), then send the start ping (note the
+    explicit `CLAUDE_PROJECT_DIR`, per Phase 0):
+    `CLAUDE_PROJECT_DIR="<project-root>" bash "<notify-path>" --start "<one-line plan summary>"`.
+    Then read the last line of `.claude/hooks/notify.log`: if it is not
+    `telegram OK (start)`, delivery is broken — STOP and warn the user in chat
+    (quote the failure line) instead of running hours blind. Only once the
+    start ping is confirmed, tell the user they can do something else; you will
+    notify on Telegram + report in chat when done (or if a stop-and-notify
+    condition is hit).
 
 ## Team Naming Convention (when delegating to agent teams)
 
@@ -128,18 +143,23 @@ DECIDE AUTONOMOUSLY and log it (do not interrupt) when the choice is:
 - Within the agreed spec and acceptance criteria.
 - Recoverable via git on the current branch.
 
+Sanctioned cleanup (NOT a blocker): `git worktree remove --force` and
+`git branch -D worktree-<id>` for worktrees/branches THIS run created (per
+step 11) are normal housekeeping — do them without stopping.
+
 STOP IMMEDIATELY, notify, and wait when the action is:
 - DESTRUCTIVE: deletes/overwrites user data, drops table/column, force
-  operation, mass file deletion, history rewrite.
+  operation on data you did not create, mass file deletion, history rewrite.
 - IRREVERSIBLE: any deploy (dev OR prod), raw SQL execution / schema migration
   apply, external API write with side effects, any deny-list item, anything
   touching main/development.
 - SPEC CONFLICT: the only way to satisfy a demand contradicts another demand
   or a Phase 1 answer, or the demand is infeasible / much larger than scoped.
 To "stop and notify": run
-`bash "<notify-script-path>" "BLOCKED: <reason>"`
-(the path resolved in Phase 0), end the turn and wait for the user. Do NOT
-proceed past the blocker. The sentinel stays in place (the batch is still
+`CLAUDE_PROJECT_DIR="<project-root>" bash "<notify-path>" "BLOCKED: <reason>"`
+(the root and path resolved in Phase 0 — the explicit `CLAUDE_PROJECT_DIR` is
+mandatory, especially from inside a worktree), end the turn and wait for the
+user. Do NOT proceed past the blocker. The sentinel stays in place (the batch is still
 active); the notifier marks the block so the Stop hook that fires right after
 this turn will NOT also send a "finished" message.
 

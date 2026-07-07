@@ -13,8 +13,10 @@ BLOCKED_MARK="${PROJECT_DIR}/.claude/.batch-blocked"
 
 [ -f "$SENTINEL" ] || exit 0
 
-# Sentinel mtime = run start. BSD stat first (macOS), then GNU.
-SINCE="$(stat -f '%Sm' "$SENTINEL" 2>/dev/null || stat -c '%y' "$SENTINEL" 2>/dev/null || echo unknown)"
+# Sentinel mtime = run start. Try GNU stat first: BSD stat rejects -c with a
+# non-zero exit (clean fallback), whereas GNU stat treats -f as a format string
+# and "succeeds" with garbage — so GNU must be attempted first, not second.
+SINCE="$(stat -c '%y' "$SENTINEL" 2>/dev/null || stat -f '%Sm' "$SENTINEL" 2>/dev/null || echo unknown)"
 
 if [ -f "$BLOCKED_MARK" ]; then
   STATE="last turn ended on a manual BLOCK (Stop hook has not fired since); the reason is in the BLOCKED notification / plan file"

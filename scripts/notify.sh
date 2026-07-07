@@ -31,6 +31,15 @@
 # the error is logged on every stop until the conf is restored or the sentinel
 # is removed by hand.
 #
+# Delivery is only ever confirmed by a Telegram {"ok":true} body. When a send
+# FAILS, no state that would suppress a retry is cleared/set: the sentinel and
+# debounce markers stay as they were, so the NEXT stop (or the debounce window
+# expiring) tries again. This is what keeps a dropped "finished" from silently
+# stranding an unattended run.
+#
+# The conf is PARSED (three known keys only), never sourced — a repo must never
+# be able to ship a .notify.conf that executes shell in this hook.
+#
 # Generic (project-agnostic). All per-project state lives under
 # ${CLAUDE_PROJECT_DIR}/.claude/ ; this script ships inside the plugin and is
 # referenced via ${CLAUDE_PLUGIN_ROOT}/scripts/notify.sh.
@@ -122,12 +131,20 @@ if [ ! -r "$CONF" ]; then
   log "ERROR: $CONF missing; no notification sent"
   exit 0
 fi
-# shellcheck disable=SC1090
-. "$CONF"
+# Parse the conf instead of sourcing it: extract only the three known keys, so
+# a malicious .notify.conf shipped in a repo can never execute code in this
+# hook. Accepts KEY=value or KEY="value" (last occurrence wins).
+conf_get() {
+  sed -n "s/^[[:space:]]*${1}=\"\{0,1\}\([^\"]*\)\"\{0,1\}[[:space:]]*\$/\1/p" "$CONF" \
+    | tail -n 1
+}
+TELEGRAM_BOT_TOKEN="$(conf_get TELEGRAM_BOT_TOKEN)"
+TELEGRAM_CHAT_ID="$(conf_get TELEGRAM_CHAT_ID)"
 
 # Project label: override via PROJECT_LABEL= in .notify.conf, else the project
 # directory name.
-LABEL="${PROJECT_LABEL:-$(basename "$PROJECT_DIR")}"
+CONF_LABEL="$(conf_get PROJECT_LABEL)"
+LABEL="${CONF_LABEL:-$(basename "$PROJECT_DIR")}"
 HOST="$(hostname 2>/dev/null || echo unknown)"
 
 case "$MODE" in
@@ -165,39 +182,55 @@ TEXT="${HEAD}
 [$HOST] $(date -u +%FT%TZ)
 $BODY"
 
+SENT=0
 if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
   # Telegram returns HTTP 200 with {"ok":false,...} on bad token/chat, so a
   # zero curl exit is NOT proof of delivery — inspect the response body.
-  # --retry covers transient failures (timeout, 408/429/5xx); per-attempt -m 8
-  # and --retry-max-time 25 keep the total under the hook's 30s timeout.
-  RESP="$(curl -sS -m 8 --retry 2 --retry-delay 2 --retry-max-time 25 \
+  # --retry covers transient failures (timeout, 408/429/5xx); per-attempt -m 6
+  # and --retry-max-time 18 keep the worst case (last attempt can start at 18s
+  # and run 6s = 24s) safely under the hook's 30s timeout.
+  RESP="$(curl -sS -m 6 --retry 2 --retry-delay 2 --retry-max-time 18 \
     "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
     --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
     --data-urlencode "text=${TEXT}" \
     --data "disable_web_page_preview=true" 2>>"$LOG")"
   case "$RESP" in
-    *'"ok":true'*) log "telegram OK ($MODE)" ;;
+    *'"ok":true'*) SENT=1; log "telegram OK ($MODE)" ;;
     *) log "telegram FAILED ($MODE): ${RESP:-no response}" ;;
   esac
 else
   log "ERROR: telegram vars missing in .notify.conf"
 fi
 
-# Post-send bookkeeping (regardless of the send outcome above).
+# Post-send bookkeeping. State that would SUPPRESS a retry (clearing the
+# sentinel, setting a debounce marker) is only applied when the send actually
+# succeeded (SENT=1); on failure everything is left as-is so the next stop —
+# or the debounce window expiring — tries again.
 case "$MODE" in
   notification)
-    : > "$NOTIF_MARK" 2>/dev/null || true
+    # Also debounce the idle-input ping when a BLOCKED message just went out
+    # (blocked mode falls here too): the Notification hook fires ~60s later and
+    # would otherwise double-notify the same event.
+    [ "$SENT" = 1 ] && : > "$NOTIF_MARK" 2>/dev/null || true
+    ;;
+  blocked)
+    [ "$SENT" = 1 ] && : > "$NOTIF_MARK" 2>/dev/null || true
     ;;
   cancel)
+    # Cancel is interactive (the user sees the chat), so clear unconditionally.
     rm -f "$SENTINEL" "$BLOCKED_MARK" "$ATTN_MARK" "$NOTIF_MARK"
     ;;
   stop)
     if [ "$FINISHED" = 1 ]; then
-      # The batch is done — clear the sentinel and all markers so ordinary
-      # later stops don't re-notify.
-      rm -f "$SENTINEL" "$BLOCKED_MARK" "$ATTN_MARK" "$NOTIF_MARK"
+      if [ "$SENT" = 1 ]; then
+        # Delivered — the batch is done; clear sentinel + all markers so
+        # ordinary later stops don't re-notify.
+        rm -f "$SENTINEL" "$BLOCKED_MARK" "$ATTN_MARK" "$NOTIF_MARK"
+      fi
+      # Send failed: keep the sentinel. The summary is still newer than it, so
+      # the next stop re-enters this same finished path and retries.
     else
-      : > "$ATTN_MARK" 2>/dev/null || true
+      [ "$SENT" = 1 ] && : > "$ATTN_MARK" 2>/dev/null || true
     fi
     ;;
 esac

@@ -129,8 +129,14 @@ CI (GitHub Actions) runs both on every push, on Linux **and** macOS — the scri
 
 - The notifier **never blocks**: it always exits 0, has no deps beyond `curl` + `iconv`, and
   only logs failures (to `<project>/.claude/hooks/notify.log`, auto-rotated at ~200KB).
-- Transient network failures are retried (`curl --retry`), and the summary excerpt is passed
-  through `iconv -c` so a byte-level cut never produces invalid UTF-8 (which Telegram rejects).
+- `.notify.conf` is **parsed** (only `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `PROJECT_LABEL`
+  are read), never sourced — a repo can never ship a config that executes shell in the hook.
+- Delivery is confirmed only by a Telegram `{"ok":true}` body. Transient failures are retried
+  (`curl --retry`); if a send still fails, **no state that would suppress a retry is touched** —
+  the sentinel and debounce markers are left as-is, so the next Stop hook (or the debounce
+  window expiring) tries again. A dropped "finished" is retried on the following stop, never
+  silently lost. The summary excerpt is passed through `iconv -c` so a byte-level cut never
+  produces invalid UTF-8 (which Telegram rejects outright).
 - The completion message is the contents of `<project>/.claude/.batch-summary.md`, which the
   command writes on completion — a fixed file, so the notifier never has to guess which plan
   to read. Only a summary **newer than the sentinel** counts: stale files from previous runs
