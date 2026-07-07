@@ -10,6 +10,17 @@
           }
         ]
       }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/notify.sh --notification",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   }
 }

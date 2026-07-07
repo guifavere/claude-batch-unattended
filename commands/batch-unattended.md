@@ -65,14 +65,21 @@ $ARGUMENTS
    plan file: ordered demands, per-demand execution chain
    (impl → testing → review, or solo steps), target branch, the
    autonomous-vs-stop policy below, and the full Phase 2 permission list.
-9. Create the sentinel `${CLAUDE_PROJECT_DIR}/.claude/.batch-active` (touch the
-   file). Present ONE consolidated message: plan summary + the exact extra
+9. Present ONE consolidated message: plan summary + the exact extra
    allow entries the user must add (if any) + deny-list blockers. Ask for a
-   single approval via AskUserQuestion: Approve / Revise / Cancel. On
-   Cancel/Revise → remove the sentinel.
-10. Only after Approve: tell the user they can do something else; you will
-    notify on Telegram + report in chat when done (or if a stop-and-notify
-    condition is hit).
+   single approval via AskUserQuestion: Approve / Revise / Cancel. Do NOT
+   create the sentinel before the answer — an interrupted or abandoned
+   approval must leave no batch state behind.
+10. Only after Approve: create the sentinel
+    `${CLAUDE_PROJECT_DIR}/.claude/.batch-active` (touch the file — its mtime
+    is the run's start marker; the Stop hook only treats a summary NEWER than
+    it as a real finish), then send the start ping:
+    `bash "<notify-script-path>" --start "<one-line plan summary>"`.
+    This confirms the run began AND proves Telegram delivery works before
+    hours of unattended work (on failure, `.claude/hooks/notify.log` says why —
+    warn the user in chat instead of running blind). Then tell the user they
+    can do something else; you will notify on Telegram + report in chat when
+    done (or if a stop-and-notify condition is hit).
 
 ## Team Naming Convention (when delegating to agent teams)
 
@@ -135,6 +142,11 @@ To "stop and notify": run
 proceed past the blocker. The sentinel stays in place (the batch is still
 active); the notifier marks the block so the Stop hook that fires right after
 this turn will NOT also send a "finished" message.
+
+Never end a mid-run turn any other way: a turn that ends while the batch is
+active without a fresh summary (and without the BLOCKED call) makes the Stop
+hook send an ATTENTION ping — correct as a safety net, but it means you
+stopped without following this policy.
 
 ## On completion
 

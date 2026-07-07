@@ -13,7 +13,7 @@ them, and otherwise runs the work solo with the same discipline.
 | Piece | Path | Role |
 |-------|------|------|
 | Slash command | `commands/batch-unattended.md` | The intake-to-execution ritual (Phases 0–4). |
-| Stop hook | `hooks/hooks.json` + `scripts/notify.sh` | Sends a Telegram message when a batch run ends or is blocked. |
+| Stop + Notification hooks | `hooks/hooks.json` + `scripts/notify.sh` | Telegram message when a batch run starts, finishes, blocks, stalls on a permission prompt, or ends abnormally. |
 | Secrets template | `.notify.conf.example` | Copied into each project's `.claude/` (gitignored). |
 
 Invocation: `/claude-batch-unattended:batch-unattended <paste demands>` (plugin commands are
@@ -27,16 +27,21 @@ namespaced as `/<plugin-name>:<command>`).
    fewest `AskUserQuestion` rounds.
 3. **Phase 2 — Permissions:** enumerates every command the run needs; flags anything on the
    deny list as "cannot be done autonomously."
-4. **Phase 3 — Single approval:** writes the plan, creates the `.batch-active` sentinel,
-   asks once: Approve / Revise / Cancel.
+4. **Phase 3 — Single approval:** writes the plan, asks once: Approve / Revise / Cancel.
+   Only on Approve it creates the `.batch-active` sentinel and sends a **"run started"**
+   ping — which also proves Telegram delivery works *before* hours of unattended work.
 5. **Phase 4 — Unattended execution:** runs each demand (teams or solo), green-gates with the
    project's verify command, logs autonomous decisions, and **stops + notifies** on anything
    destructive, irreversible, or spec-conflicting. A stop-and-notify leaves the sentinel in
-   place and drops a `.batch-blocked` marker so the run isn't mistaken for finished.
+   place and drops a `.batch-blocked` marker so the run isn't mistaken for finished. If the
+   run stalls on a permission prompt or idle input, the **Notification hook** pings you
+   (5-min debounce) instead of waiting silently forever.
 6. **On completion:** writes the run summary to `.claude/.batch-summary.md` and ends the turn.
-   The Stop hook — seeing the sentinel present and no block marker — reads that file, sends
-   the summary to Telegram, and clears the sentinel. (A turn that ended on a block consumes
-   the marker and stays silent, so you get exactly one message per event.)
+   The Stop hook — seeing the sentinel present, no block marker, and a summary **newer than
+   the sentinel** — sends the summary to Telegram and clears the sentinel. A turn that ended
+   on a block consumes the marker and stays silent (exactly one message per event). A turn
+   that ends mid-run with no fresh summary sends an **ATTENTION** ping (30-min debounce) and
+   keeps the sentinel, so a stale summary from a previous run is never mistaken for a finish.
 
 ## Install
 
@@ -75,8 +80,8 @@ claude --plugin-dir /path/to/claude-batch-unattended
    it**. (Bot: create via @BotFather. chat_id: message the bot, then read
    `message.chat.id` from `https://api.telegram.org/bot<TOKEN>/getUpdates`.) Also gitignore
    the run state the plugin writes: `.claude/.notify.conf`, `.claude/.batch-active`,
-   `.claude/.batch-blocked`, `.claude/.batch-summary.md`, `.claude/hooks/notify.log`
-   (or ignore `.claude/` wholesale).
+   `.claude/.batch-blocked`, `.claude/.batch-summary.md`, `.claude/.batch-attn-last`,
+   `.claude/.batch-notif-last`, `.claude/hooks/notify.log` (or ignore `.claude/` wholesale).
 2. **Optional label** — set `PROJECT_LABEL="MyProject"` in `.notify.conf` (defaults to the
    project directory name).
 3. **Agent teams (optional)** — if you want delegated execution, set
@@ -85,19 +90,37 @@ claude --plugin-dir /path/to/claude-batch-unattended
    config needed.
 4. **Permissions** — on the first run, approve the notify Bash call (and any project-specific
    commands the plan enumerates). Add them to the project's `.claude/settings.json` allow
-   list to avoid prompts on later runs.
+   list to avoid prompts on later runs. Note the command's frontmatter pre-allows
+   `Bash(bash:*)` for the duration of the run: the plugin's install path varies per machine,
+   and a permission prompt at the exact moment of a BLOCKED notification would deadlock an
+   unattended run. That is deliberately broad — if you prefer tighter scoping, remove it from
+   the frontmatter and allowlist the absolute `notify.sh` path per project instead.
+
+## Notifier modes
+
+```
+notify.sh                     # Stop hook: "finished" (summary newer than sentinel)
+                              # or ATTENTION (abnormal end; 30-min debounce)
+notify.sh --notification      # Notification hook: permission/idle prompt (5-min debounce)
+notify.sh --start "msg"       # post-approval "run started" ping
+notify.sh "BLOCKED: reason"   # manual stop-and-notify (drops the block marker)
+```
 
 ## Notes
 
-- The notifier **never blocks**: it always exits 0, has no deps beyond `curl`, and only
-  logs failures (to `<project>/.claude/hooks/notify.log`).
+- The notifier **never blocks**: it always exits 0, has no deps beyond `curl` + `iconv`, and
+  only logs failures (to `<project>/.claude/hooks/notify.log`, auto-rotated at ~200KB).
+- Transient network failures are retried (`curl --retry`), and the summary excerpt is passed
+  through `iconv -c` so a byte-level cut never produces invalid UTF-8 (which Telegram rejects).
 - The completion message is the contents of `<project>/.claude/.batch-summary.md`, which the
   command writes on completion — a fixed file, so the notifier never has to guess which plan
-  to read.
+  to read. Only a summary **newer than the sentinel** counts: stale files from previous runs
+  trigger an ATTENTION ping instead of a fake "finished".
 - All per-project state (`.notify.conf`, `.batch-active` sentinel, `.batch-blocked` marker,
-  `.batch-summary.md`, `notify.log`, plan files) lives under the project's `.claude/`. The
-  plugin only ships the command + script.
-- The Stop hook only auto-notifies while a batch is active (the `.batch-active` sentinel is
-  present), so it won't ping you on every ordinary session end. On a clean finish it sends the
-  summary and clears the sentinel; a turn that ended on a block stays silent (the BLOCKED
-  message already went out).
+  `.batch-summary.md`, debounce markers, `notify.log`, plan files) lives under the project's
+  `.claude/`. The plugin only ships the command + script.
+- The hooks only auto-notify while a batch is active (the `.batch-active` sentinel is
+  present), so they won't ping you on every ordinary session end. On a clean finish the Stop
+  hook sends the summary and clears the sentinel + markers; a turn that ended on a block stays
+  silent (the BLOCKED message already went out). An abnormal end keeps the sentinel — dismiss
+  a batch you've abandoned with `rm .claude/.batch-active`.
