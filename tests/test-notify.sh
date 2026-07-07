@@ -46,6 +46,7 @@ FAIL=0
 ok()  { PASS=$((PASS + 1)); echo "PASS: $1"; }
 bad() { FAIL=$((FAIL + 1)); echo "FAIL: $1"; }
 check() { if eval "$2"; then ok "$1"; else bad "$1"; fi; }
+# shellcheck disable=SC2317  # invoked indirectly via check() assertion strings
 lastlog() { tail -n 1 "$LOG" 2>/dev/null; }
 reset_state() { rm -f "$C"/.batch-* "$LOG"; }
 

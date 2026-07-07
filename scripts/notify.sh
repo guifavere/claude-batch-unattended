@@ -208,7 +208,9 @@ case "$MODE" in
     # Debounce the idle-input ping. (The blocked arm below sets NOTIF_MARK
     # itself for the same reason: its Notification hook fires ~60s later and
     # would otherwise double-notify the same event.)
-    [ "$SENT" = 1 ] && : > "$NOTIF_MARK" 2>/dev/null || true
+    if [ "$SENT" = 1 ]; then
+      : > "$NOTIF_MARK" 2>/dev/null || true
+    fi
     ;;
   blocked)
     # Only silence the trailing Stop hook once the BLOCKED message is actually
@@ -234,7 +236,9 @@ case "$MODE" in
       # Send failed: keep the sentinel. The summary is still newer than it, so
       # the next stop re-enters this same finished path and retries.
     else
-      [ "$SENT" = 1 ] && : > "$ATTN_MARK" 2>/dev/null || true
+      if [ "$SENT" = 1 ]; then
+        : > "$ATTN_MARK" 2>/dev/null || true
+      fi
     fi
     ;;
 esac
