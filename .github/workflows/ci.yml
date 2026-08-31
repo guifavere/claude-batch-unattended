@@ -16,6 +16,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Hook scripts executable
+        run: |
+          fail=0
+          for f in $(grep -o '/scripts/[a-z-]*\.sh' hooks/hooks.json | sed 's|^/||' | sort -u); do
+            [ -x "$f" ] || { echo "::error::$f referenced by hooks.json is not executable (git mode 100644)"; fail=1; }
+          done
+          exit $fail
+
       - name: Syntax check
         run: |
           for f in scripts/*.sh tests/*.sh; do bash -n "$f"; done
